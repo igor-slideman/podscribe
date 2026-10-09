@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Podscribe">
+<title>Podscribe</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: одна узкая колонка, как у нативной утилиты; акцент только у главной кнопки и прогресса */
+:root{
+  --bg:#f6f7f9; --surface:#ffffff; --fg:#14171c; --muted:#69707d; --line:#e2e5ea;
+  --accent:#6b3fd6; --accent-fg:#ffffff; --track:#e7e2f7; --error:#b42318;
+  --sans:"IBM Plex Sans",-apple-system,"Helvetica Neue",Arial,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0f1115; --surface:#181b21; --fg:#eceef2; --muted:#9097a3; --line:#2a2f38;
+  --accent:#a68bff; --accent-fg:#14111f; --track:#2a2440; --error:#ff8a7a;
+  color-scheme:dark;
+}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0}
+body{background:var(--bg);color:var(--fg);font:16px/1.5 var(--sans);-webkit-text-size-adjust:100%;
+  padding:calc(env(safe-area-inset-top,0px) + 28px) 18px calc(env(safe-area-inset-bottom,0px) + 32px)}
+main{max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+h1{font-size:28px;line-height:1.15;font-weight:600;margin:0;letter-spacing:-.01em}
+.sub{color:var(--muted);margin:4px 0 0;font-size:15px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:12px}
+label{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+input,select{width:100%;font:16px var(--sans);color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:12px}
+input:focus,select:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.row{display:flex;gap:10px}
+.row>*{flex:1;min-width:0}
+button{font:600 16px var(--sans);border-radius:12px;padding:14px;border:1px solid var(--line);background:var(--surface);color:var(--fg);cursor:pointer}
+button.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+button:disabled{opacity:.45;cursor:default}
+.bar{height:8px;background:var(--track);border-radius:99px;overflow:hidden}
+.bar>i{display:block;height:100%;width:0;background:var(--accent);border-radius:99px;transition:width .4s ease}
+.status{display:flex;justify-content:space-between;gap:12px;font-size:14px}
+.status b{font-weight:500}
+.status span{font-family:var(--mono);color:var(--muted);font-variant-numeric:tabular-nums}
+.meta{font-size:14px;color:var(--muted)}
+.meta strong{color:var(--fg);font-weight:600;display:block;font-size:16px}
+.err{color:var(--error);font-size:14px;overflow-wrap:anywhere;margin:0}
+pre{font:13px/1.55 var(--mono);white-space:pre-wrap;word-break:break-word;margin:0;max-height:320px;overflow:auto;color:var(--fg)}
+details summary{cursor:pointer;color:var(--muted);font-size:14px}
+.hint{font-size:13px;color:var(--muted);margin:0}
+@media (prefers-reduced-motion:reduce){.bar>i{transition:none}}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Podscribe</h1>
+    <p class="sub">Ссылка на эпизод Apple Podcasts → текст в .md</p>
+  </header>
+
+  <section class="card">
+    <label for="url">Ссылка на эпизод</label>
+    <input id="url" type="url" inputmode="url" autocomplete="off" placeholder="https://podcasts.apple.com/…?i=1000…">
+    <div class="row">
+      <div>
+        <label for="lang">Язык</label>
+        <select id="lang">
+          <option value="">Авто</option>
+          <option value="ru">Русский</option>
+          <option value="en">English</option>
+          <option value="pt">Português</option>
+          <option value="es">Español</option>
+          <option value="de">Deutsch</option>
+          <option value="fr">Français</option>
+        </select>
+      </div>
+    </div>
+    <button id="go" class="primary">Начать</button>
+  </section>
+
+  <section class="card" id="progress" hidden>
+    <div class="meta" id="meta"></div>
+    <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" id="barwrap"><i id="bar"></i></div>
+    <div class="status"><b id="stage">—</b><span id="timer">0:00</span></div>
+    <p class="err" id="err" hidden></p>
+  </section>
+
+  <section class="card" id="result" hidden>
+    <div class="row">
+      <button id="dl" class="primary">Скачать .md</button>
+      <button id="share">Поделиться</button>
+    </div>
+    <details><summary>Показать текст</summary><pre id="preview"></pre></details>
+  </section>
+
+  <section class="card">
+    <details>
+      <summary>Ключ Groq API</summary>
+      <p class="hint">Бесплатный ключ: console.groq.com → API Keys. Хранится только в этом браузере.</p>
+      <input id="key" type="password" autocomplete="off" placeholder="gsk_…">
+      <label for="proxy" style="display:block;margin-top:12px">Посредник (необязательно)</label>
+      <p class="hint">Адрес Cloudflare Worker. Нужен, если Groq пишет про переадресацию (302).</p>
+      <input id="proxy" type="url" inputmode="url" autocomplete="off" placeholder="https://podscribe.ваш-логин.workers.dev">
+    </details>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const GROQ = "https://api.groq.com/openai/v1/audio/transcriptions";
+let mdText = "", mdName = "episode.md", tick = null, fake = null;
+
+const store = {
+  get(k){ try{ return localStorage.getItem(k) || "" }catch(e){ return "" } },
+  set(k,v){ try{ localStorage.setItem(k,v) }catch(e){} }
+};
+$("key").value = store.get("groqKey");
+$("lang").value = store.get("lang");
+$("key").addEventListener("change", e => store.set("groqKey", e.target.value.trim()));
+$("lang").addEventListener("change", e => store.set("lang", e.target.value));
+$("proxy").value = store.get("proxy");
+$("proxy").addEventListener("change", e => store.set("proxy", e.target.value.trim().replace(/\/+$/, "")));
+
+// Groq не следует переадресациям, поэтому ищем конечный адрес файла заранее
+async function resolveAudio(url){
+  const proxy = $("proxy").value.trim().replace(/\/+$/, "");
+  if (proxy){
+    const r = await fetch(proxy + "/?u=" + encodeURIComponent(url));
+    if (!r.ok) throw new Error("Посредник ответил ошибкой " + r.status + ". Проверьте его адрес.");
+    const j = await r.json();
+    if (j.url) return j.url;
+  }
+  try{ // без посредника: работает, если аудиохостинг разрешает такие запросы
+    const r = await fetch(url, { headers:{ Range:"bytes=0-1" } });
+    r.body && r.body.cancel();
+    if (r.url) return r.url;
+  }catch(e){}
+  return url;
+}
+if (!store.get("groqKey")) $("key").closest("details").open = true;
+
+function setProgress(p, stage){
+  $("bar").style.width = p + "%";
+  $("barwrap").setAttribute("aria-valuenow", Math.round(p));
+  if (stage) $("stage").textContent = stage;
+}
+function fail(msg){
+  clearInterval(tick); clearInterval(fake);
+  $("err").textContent = msg; $("err").hidden = false;
+  $("stage").textContent = "Ошибка"; $("go").disabled = false;
+}
+const fmt = s => { s = Math.floor(s); const h = s/3600|0, m = (s%3600)/60|0, x = s%60;
+  return h ? `${h}:${String(m).padStart(2,"0")}:${String(x).padStart(2,"0")}` : `${String(m).padStart(2,"0")}:${String(x).padStart(2,"0")}` };
+
+// iTunes Lookup через JSONP (у API нет надёжного CORS)
+function itunes(id, country){
+  return new Promise((resolve, reject) => {
+    const cb = "cb" + Date.now();
+    const s = document.createElement("script");
+    const t = setTimeout(() => { cleanup(); reject(new Error("Apple не ответил")) }, 20000);
+    function cleanup(){ clearTimeout(t); delete window[cb]; s.remove() }
+    window[cb] = data => { cleanup(); resolve(data) };
+    s.onerror = () => { cleanup(); reject(new Error("Не удалось связаться с Apple")) };
+    s.src = `https://itunes.apple.com/lookup?id=${id}&entity=podcastEpisode&limit=200&country=${country}&callback=${cb}`;
+    document.head.appendChild(s);
+  });
+}
+
+async function findEpisode(url){
+  const pid = url.match(/\/id(\d+)/), eid = url.match(/[?&]i=(\d+)/);
+  const country = (url.match(/apple\.com\/([a-z]{2})\//) || [,"us"])[1];
+  if (!pid) throw new Error("В ссылке нет id подкаста. Скопируйте ссылку на эпизод: Поделиться → Скопировать ссылку.");
+  const q = `https://itunes.apple.com/lookup?id=${pid[1]}&entity=podcastEpisode&limit=200&country=${country}`;
+  let data;
+  try{ data = await (await fetch(q)).json() }      // прямой запрос
+  catch(e){ data = await itunes(pid[1], country) } // запасной путь через JSONP
+  const res = data.results || [];
+  const show = res.find(r => r.kind === "podcast") || {};
+  const eps = res.filter(r => r.wrapperType === "podcastEpisode");
+  const ep = eid ? eps.find(r => String(r.trackId) === eid[1]) : eps[0];
+  if (!ep) throw new Error("Эпизод не найден. Скорее всего, он старше последних 200 выпусков — эта версия их не находит.");
+  if (!ep.episodeUrl) throw new Error("У эпизода нет открытого аудио (платный или эксклюзивный контент).");
+  return { title: ep.trackName, show: show.collectionName || ep.collectionName,
+           date: (ep.releaseDate || "").slice(0,10), audio: ep.episodeUrl,
+           dur: (ep.trackTimeMillis || 0) / 1000, link: url };
+}
+
+async function transcribe(audioUrl, lang, key){
+  const fd = new FormData();
+  fd.append("model", "whisper-large-v3-turbo");
+  fd.append("url", audioUrl);
+  fd.append("response_format", "verbose_json");
+  fd.append("temperature", "0");
+  if (lang) fd.append("language", lang);
+  for (let attempt = 0; attempt < 4; attempt++){
+    const r = await fetch(GROQ, { method:"POST", headers:{ Authorization:"Bearer " + key }, body: fd });
+    if (r.status === 429 || r.status >= 500){
+      const wait = Number(r.headers.get("retry-after")) || 5 * 2 ** attempt;
+      $("stage").textContent = `Лимит Groq, жду ${Math.round(wait)} с…`;
+      await new Promise(ok => setTimeout(ok, wait * 1000));
+      continue;
+    }
+    if (r.status === 401) throw new Error("Groq отклонил ключ. Проверьте его в разделе «Ключ Groq API».");
+    if (r.status === 413) throw new Error("Файл слишком большой для вашего тарифа Groq.");
+    if (!r.ok){
+      const body = await r.text();
+      if (/status code: 30\d/.test(body))
+        throw new Error("Аудиохостинг этого подкаста использует переадресацию, а Groq её не проходит. Настройте посредника (поле «Посредник» внизу).");
+      let msg = body; try{ msg = JSON.parse(body).error.message }catch(e){}
+      throw new Error("Groq: " + msg.slice(0,200));
+    }
+    const j = await r.json();
+    return (j.segments || []).map(s => [s.start, s.text]);
+  }
+  throw new Error("Groq перегружен, попробуйте через минуту.");
+}
+
+function toMarkdown(m, segs){
+  const out = [`# ${m.title}`, "", `**Подкаст:** ${m.show || "—"}  `, `**Дата:** ${m.date || "—"}  `,
+               `**Ссылка:** ${m.link}`, "", "---", ""];
+  let para = [], start = null, len = 0;
+  for (const [st, raw] of segs){
+    const t = (raw || "").trim(); if (!t) continue;
+    if (start === null) start = st;
+    para.push(t); len += t.length;
+    if (len > 700 && /[.?!…]$/.test(t)){ out.push(`**[${fmt(start)}]** ` + para.join(" "), ""); para = []; start = null; len = 0 }
+  }
+  if (para.length) out.push(`**[${fmt(start)}]** ` + para.join(" "), "");
+  return out.join("\n");
+}
+const slug = s => (s || "episode").replace(/[^\p{L}\p{N}\s-]/gu, "").trim().replace(/\s+/g, "-").slice(0,80) || "episode";
+
+$("go").addEventListener("click", async () => {
+  const url = $("url").value.trim(), key = $("key").value.trim(), lang = $("lang").value;
+  if (!key){ $("key").closest("details").open = true; $("key").focus(); return }
+  if (!url){ $("url").focus(); return }
+  store.set("groqKey", key);
+  $("go").disabled = true; $("err").hidden = true; $("result").hidden = true; $("progress").hidden = false;
+  $("meta").textContent = "";
+  const t0 = Date.now();
+  clearInterval(tick); tick = setInterval(() => $("timer").textContent = fmt((Date.now()-t0)/1000), 500);
+  try{
+    setProgress(5, "Ищу эпизод…");
+    const m = await findEpisode(url);
+    $("meta").innerHTML = "";
+    const strong = document.createElement("strong"); strong.textContent = m.title;
+    $("meta").append(strong, document.createTextNode(`${m.show || ""}${m.dur ? " · " + fmt(m.dur) : ""}`));
+    setProgress(10, "Ищу аудиофайл…");
+    m.audio = await resolveAudio(m.audio);
+    setProgress(12, "Распознаю речь…");
+    // Прогресс ориентировочный: Groq не сообщает ход работы, оцениваем по длине эпизода
+    const est = 10 + (m.dur || 1800) / 100, t1 = Date.now();
+    clearInterval(fake);
+    fake = setInterval(() => {
+      const f = Math.min((Date.now()-t1)/1000/est, 1);
+      setProgress(12 + 83 * (1 - Math.pow(1-f, 2)) * 0.98);
+    }, 300);
+    const segs = await transcribe(m.audio, lang, key);
+    clearInterval(fake);
+    if (!segs.length) throw new Error("Groq вернул пустой текст. Возможно, в эпизоде нет речи или аудио недоступно.");
+    mdText = toMarkdown(m, segs); mdName = slug(m.title) + ".md";
+    setProgress(100, "Готово");
+    clearInterval(tick);
+    $("preview").textContent = mdText;
+    $("result").hidden = false; $("go").disabled = false;
+  }catch(e){
+    fail(e.message === "Failed to fetch" || e.message === "Load failed"
+      ? "Нет связи с Groq. Проверьте интернет и попробуйте снова." : e.message);
+  }
+});
+
+$("dl").addEventListener("click", () => {
+  const blob = new Blob([mdText], { type:"text/markdown;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = mdName;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+});
+$("share").addEventListener("click", async () => {
+  const file = new File([mdText], mdName, { type:"text/markdown" });
+  try{
+    if (navigator.canShare && navigator.canShare({ files:[file] })) await navigator.share({ files:[file], title: mdName });
+    else await navigator.share({ title: mdName, text: mdText });
+  }catch(e){ /* пользователь закрыл меню */ }
+});
+</script>
+</body>
+</html>
